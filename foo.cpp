@@ -3,22 +3,18 @@
 #include <utility>
 #include <type_traits>
 
-#define MAKE_FIELD(field) \
-    makeField(&type::field, #field)
+#define MAKE_FIELD(field, ...) \
+    makeField<decltype(&type::field), &type::field>(#field, ##__VA_ARGS__)
 
-template <typename T>
+template <typename T, T t>
 struct Field {
-};
-
-template <typename Base, typename T>
-struct Field<T Base::*> {
+    constexpr T ptr() const { return t; }
     const char* name;
-    T Base::* ptr;
 };
 
-template <typename Base, typename T>
-constexpr Field<T Base::*> makeField(T Base::*ptr, const char* name) {
-    return Field<T Base::*>{name, ptr};
+template <typename T, T t>
+constexpr Field<T, t> makeField(const char* name) {
+    return Field<T, t>{name};
 }
 
 template <typename Callable, typename Tup, size_t ...Idxs>
@@ -60,7 +56,7 @@ struct ReflectionData {
 
     template <typename U>
     constexpr auto getTupleLens(U&& object) {
-        return tupleMap([&](auto&& x){ return std::forward<U>(object).*(x.ptr); }, fields);
+        return tupleMap([&](auto&& x){ return std::forward<U>(object).*(x.ptr()); }, fields);
     }
 
     const char* name;
@@ -75,13 +71,23 @@ constexpr ReflectionData<T, Fields...> makeReflectionData(const char* name, Fiel
     return ReflectionData<T, Fields...>(name, fields...);
 }
 
+#define VALIDATE(name) \
+    template <decltype(&Foo::name) ptr, typename T> \
+    constexpr static bool validate(T&& name)
+
 struct Foo {
     long a;
+
+    VALIDATE(a) {
+        return a > 0 && a < 10;
+    }
+
     short b;
     int c;
 
     constexpr static auto reflectionData() {
         using type = Foo;
+
         return makeReflectionData<Foo>("Foo", MAKE_FIELD(a), MAKE_FIELD(b), MAKE_FIELD(c));
     }
 };
@@ -105,7 +111,7 @@ std::ostream& operator<<(std::ostream& os, const T& t) {
     auto reflectionData = T::reflectionData();
     os << "(" << reflectionData.name << ") {\n";
     tupleForEach([&](size_t i, const auto& x) {
-        os << "\t" << x.name << " : " << t.*(x.ptr);
+        os << "\t" << x.name << " : " << t.*(x.ptr());
         if (reflectionData.nFields != i + 1) {
             os << ",";
         }
@@ -124,4 +130,6 @@ int main() {
     std::cout << (Foo::reflectionData().getTupleLens(Foo{1,2,3}) < Foo::reflectionData().getTupleLens(Foo{2,3,4})) << "\n";
     std::cout << (Foo{1,2,3} < Foo{2,3,4}) << "\n";
     std::cout << Foo{1,2,3} << "\n";
+    std::cout << Foo::validate<&Foo::a>(5) << "\n";
+    std::cout << Foo::validate<&Foo::a>(11) << "\n";
 }
