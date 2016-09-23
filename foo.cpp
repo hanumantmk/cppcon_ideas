@@ -2,9 +2,28 @@
 #include <iostream>
 #include <utility>
 #include <type_traits>
+#include <boost/preprocessor/seq/for_each_i.hpp>
+#include <boost/preprocessor/tuple/elem.hpp>
+#include <boost/preprocessor/variadic/to_seq.hpp>
+#include <boost/preprocessor/punctuation/comma_if.hpp>
 
-#define MAKE_FIELD(field, ...) \
-    makeField<decltype(&type::field), &type::field>(#field, ##__VA_ARGS__)
+#define PASTE(v) #v
+
+#define TYPE(r, data, i, elem) \
+    BOOST_PP_COMMA_IF(i) makeField<decltype(&data::elem), &data::elem>(PASTE(elem))
+
+#define ARGS(classv, seq) \
+    BOOST_PP_SEQ_FOR_EACH_I(TYPE, classv, seq)
+
+#define DECLARE(classv, ...) \
+    constexpr static auto reflectionData() { \
+        return makeReflectionData<classv>(#classv, ARGS(classv, BOOST_PP_VARIADIC_TO_SEQ(__VA_ARGS__))); \
+    } \
+    using type = classv;
+
+#define VALIDATE(name) \
+    template <decltype(&type::name) ptr, typename T> \
+    constexpr static bool validate(T&& name)
 
 template <typename T, T t>
 struct Field {
@@ -34,7 +53,6 @@ enum class Control {
 
 template <typename Callable, typename Tup, size_t ...Idxs>
 constexpr void tupleForEachImpl(Callable&& cb, Tup&& tup, std::index_sequence<Idxs...>) {
-//    (void)std::initializer_list<int>{(cb(Idxs, std::get<Idxs>(std::forward<Tup>(tup))), 0)...};
     Control flag = Control::continue_t;
     (void)std::initializer_list<int>{([&]{
         if (flag == Control::continue_t) {
@@ -56,7 +74,7 @@ struct ReflectionData {
 
     template <typename U>
     constexpr auto getTupleLens(U&& object) {
-        return tupleMap([&](auto&& x){ return std::forward<U>(object).*(x.ptr()); }, fields);
+        return tupleMap([&](auto&& x){ return std::ref(std::forward<U>(object).*(x.ptr())); }, fields);
     }
 
     const char* name;
@@ -71,25 +89,25 @@ constexpr ReflectionData<T, Fields...> makeReflectionData(const char* name, Fiel
     return ReflectionData<T, Fields...>(name, fields...);
 }
 
-#define VALIDATE(name) \
-    template <decltype(&Foo::name) ptr, typename T> \
-    constexpr static bool validate(T&& name)
+class Foo {
+public:
+    Foo() = default;
 
-struct Foo {
+    Foo(long a, short b, int c) : a(a), b(b), c(c) {}
+
+private:
     long a;
+    short b;
+    int c;
+
+public:
+    DECLARE(Foo, a, b, c)
 
     VALIDATE(a) {
         return a > 0 && a < 10;
     }
 
-    short b;
-    int c;
-
-    constexpr static auto reflectionData() {
-        using type = Foo;
-
-        return makeReflectionData<Foo>("Foo", MAKE_FIELD(a), MAKE_FIELD(b), MAKE_FIELD(c));
-    }
+    bool check() const { return a && b && c; }
 };
 
 template <typename T>
@@ -104,6 +122,12 @@ constexpr bool hasReflectionData_v = decltype(hasReflectionData<T>(0))::value;
 template <typename T, std::enable_if_t<hasReflectionData_v<T>, int> = 0>
 bool operator<(const T& lhs, const T& rhs) {
     return T::reflectionData().getTupleLens(lhs) < T::reflectionData().getTupleLens(rhs);
+}
+
+template <typename T, typename Tup, std::enable_if_t<hasReflectionData_v<T>, int> = 0>
+auto load(T&& dst, Tup&& from) {
+    T::reflectionData().getTupleLens(dst) = std::forward<Tup>(from);
+    return std::move(dst);
 }
 
 template <typename T, std::enable_if_t<hasReflectionData_v<T>, int> = 0>
@@ -124,12 +148,7 @@ std::ostream& operator<<(std::ostream& os, const T& t) {
 }
 
 int main() {
-    Foo foo{1,2,3};
-    std::cout << std::get<2>(Foo::reflectionData().fields).name << "\n";
-    std::cout << std::get<2>(Foo::reflectionData().getTupleLens(foo)) << "\n";
-    std::cout << (Foo::reflectionData().getTupleLens(Foo{1,2,3}) < Foo::reflectionData().getTupleLens(Foo{2,3,4})) << "\n";
     std::cout << (Foo{1,2,3} < Foo{2,3,4}) << "\n";
     std::cout << Foo{1,2,3} << "\n";
-    std::cout << Foo::validate<&Foo::a>(5) << "\n";
-    std::cout << Foo::validate<&Foo::a>(11) << "\n";
+    std::cout << load(Foo{}, std::make_tuple(1,2,3)) << "\n";
 }
