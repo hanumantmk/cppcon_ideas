@@ -2,6 +2,7 @@
 #include <iostream>
 #include <utility>
 #include <type_traits>
+#include <exception>
 #include <boost/preprocessor/seq/for_each_i.hpp>
 #include <boost/preprocessor/tuple/elem.hpp>
 #include <boost/preprocessor/variadic/to_seq.hpp>
@@ -28,11 +29,71 @@
 template <bool b>
 struct StaticIf;
 
+template <typename Parent, typename T, bool b>
+struct Else;
+
+template <typename Parent, typename T>
+struct Else<Parent, T, true> {
+    Parent& p;
+    T t;
+
+    template <typename ...Ts>
+    auto operator()(Ts&& ...ts) {
+        return t(std::forward<Ts>(ts)...);
+    }
+};
+
+template <typename Parent, typename T>
+struct Else<Parent, T, false> {
+    Parent& p;
+    T t;
+
+    template <typename ...Ts>
+    auto operator()(Ts&& ...ts) {
+        return p(std::forward<Ts>(ts)...);
+    }
+};
+
+template <typename T, bool b>
+struct Then;
+
+template <typename T>
+struct Then<T, true> {
+    Then(T&& t) : t(t) {}
+
+    template <typename ...Ts>
+    auto operator()(Ts&& ...ts) {
+        return t(std::forward<Ts>(ts)...);
+    }
+
+    template <typename U>
+    auto static_else(U&& u) {
+        return Else<Then, U, false>{*this, std::forward<U>(u)};
+    }
+
+    T t;
+};
+
+template <typename T>
+struct Then<T, false> {
+    Then(T&&) {}
+
+    template <typename ...Ts>
+    auto operator()(Ts&& ...ts) {
+    }
+
+    template <typename U>
+    auto static_else(U&& u) {
+        return Else<Then, U, true>{*this, std::forward<U>(u)};
+    }
+
+};
+
 template <>
 struct StaticIf<true> {
     template <typename T>
     auto then(T&& t) {
-        return t;
+        return Then<T, true>{std::forward<T>(t)};
     }
 };
 
@@ -40,9 +101,7 @@ template <>
 struct StaticIf<false> {
     template <typename T>
     auto then(T&& t) {
-        return [](auto&& ...){
-            std::cout << "in a dumb place\n";
-        };
+        return Then<T, false>{std::forward<T>(t)};
     }
 };
 
@@ -181,6 +240,8 @@ struct Binder {
         visit(t, name, [&](auto&& x){
             static_if(std::is_convertible<U, std::decay_t<decltype(x)>>{}).then([&](auto&& y){
                 y = std::forward<U>(u);
+            }).static_else([&](auto&& y){
+                throw std::runtime_error("bad assignment type");
             })(std::forward<decltype(x)>(x));
         });
         return *this;
@@ -228,4 +289,5 @@ int main() {
     wrap(foo)["a"] = 9001;
     wrap(foo)["d"] = "hi";
     std::cout << foo << "\n";
+    wrap(foo)["d"] = 50;
 }
