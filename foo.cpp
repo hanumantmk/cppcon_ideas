@@ -34,7 +34,7 @@ struct Else;
 
 template <typename Parent, typename T>
 struct Else<Parent, T, true> {
-    Parent& p;
+    Else(Parent& p, T&& t) : t(std::move(t)) {}
     T t;
 
     template <typename ...Ts>
@@ -45,8 +45,8 @@ struct Else<Parent, T, true> {
 
 template <typename Parent, typename T>
 struct Else<Parent, T, false> {
+    Else(Parent& p, T&& t) : p(p) {}
     Parent& p;
-    T t;
 
     template <typename ...Ts>
     auto operator()(Ts&& ...ts) {
@@ -89,24 +89,16 @@ struct Then<T, false> {
 
 };
 
-template <>
-struct StaticIf<true> {
+template <bool b>
+struct StaticIf {
     template <typename T>
     auto then(T&& t) {
-        return Then<T, true>{std::forward<T>(t)};
-    }
-};
-
-template <>
-struct StaticIf<false> {
-    template <typename T>
-    auto then(T&& t) {
-        return Then<T, false>{std::forward<T>(t)};
+        return Then<T, b>{std::forward<T>(t)};
     }
 };
 
 template <typename T>
-auto static_if(T&& t) {
+auto static_if(const T& t) {
     return StaticIf<T::value>{};
 }
 
@@ -142,7 +134,7 @@ constexpr void tupleForEachImpl(Callable&& cb, Tup&& tup, std::index_sequence<Id
     Control flag = Control::continue_t;
     (void)std::initializer_list<int>{([&]{
         if (flag == Control::continue_t) {
-            flag = cb(Idxs, std::get<Idxs>(std::forward<Tup>(tup)));
+            flag = cb(std::integral_constant<size_t, Idxs>{}, std::get<Idxs>(std::forward<Tup>(tup)));
         }
     }(), 0)...};
 }
@@ -219,7 +211,7 @@ auto load(T&& dst, Tup&& from) {
 
 template <typename T, typename Callback>
 void visit(T&& t, const char* name, Callback&& cb) {
-    tupleForEach([&](size_t i, auto&& x) {
+    tupleForEach([&](auto i, auto&& x) {
         if (strcmp(x.name, name) == 0) {
             cb(t.*(x.ptr()));
 
@@ -267,7 +259,7 @@ template <typename T, std::enable_if_t<hasReflectionData_v<T>, int> = 0>
 std::ostream& operator<<(std::ostream& os, const T& t) {
     auto reflectionData = T::reflectionData();
     os << "(" << reflectionData.name << ") {\n";
-    tupleForEach([&](size_t i, const auto& x) {
+    tupleForEach([&](auto i, const auto& x) {
         os << "\t" << x.name << " : " << t.*(x.ptr());
         if (reflectionData.nFields != i + 1) {
             os << ",";
@@ -289,5 +281,10 @@ int main() {
     wrap(foo)["a"] = 9001;
     wrap(foo)["d"] = "hi";
     std::cout << foo << "\n";
-    wrap(foo)["d"] = 50;
+
+    try {
+        wrap(foo)["d"] = 50;
+    } catch (std::exception& e) {
+        std::cout << e.what() << "\n";
+    }
 }
