@@ -99,9 +99,10 @@ private:
     long a;
     short b;
     int c;
+    std::string d;
 
 public:
-    DECLARE(Foo, a, b, c)
+    DECLARE(Foo, a, b, c, d)
 
     VALIDATE(a) {
         return a > 0 && a < 10;
@@ -143,6 +144,16 @@ void visit(T&& t, const char* name, Callback&& cb) {
     }, std::decay_t<T>::reflectionData().fields);
 }
 
+template <typename Lhs, typename Rhs, std::enable_if_t<std::is_convertible<Rhs, Lhs>::value, int> = 0>
+void bind(Lhs& lhs, Rhs&& rhs) {
+    lhs = std::forward<Rhs>(rhs);
+}
+
+template <typename Lhs, typename Rhs, std::enable_if_t<! std::is_convertible<Rhs, Lhs>::value, int> = 0>
+void bind(Lhs& lhs, Rhs&& rhs) {
+    throw "bad type";
+}
+
 template <typename T, std::enable_if_t<hasReflectionData_v<T>, int> = 0>
 struct Binder {
     T& t;
@@ -151,7 +162,7 @@ struct Binder {
     template <typename U>
     Binder& operator=(U&& u) {
         visit(t, name, [&](auto&& x){
-            x = std::forward<U>(u);
+            bind(x, std::forward<U>(u));
         });
         return *this;
     }
@@ -192,9 +203,9 @@ std::ostream& operator<<(std::ostream& os, const T& t) {
 int main() {
     std::cout << (Foo{1,2,3} < Foo{2,3,4}) << "\n";
     std::cout << Foo{1,2,3} << "\n";
-    std::cout << load(Foo{}, std::make_tuple(1,2,3)) << "\n";
+    std::cout << load(Foo{}, std::make_tuple(1,2,3, "fun")) << "\n";
 
     Foo foo{1,2,3};
-    wrap(foo)["a"] = 4;
+    wrap(foo)["d"] = "hi";
     std::cout << foo << "\n";
 }
