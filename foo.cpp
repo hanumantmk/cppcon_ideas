@@ -25,6 +25,33 @@
     template <decltype(&type::name) ptr, typename T> \
     constexpr static bool validate(T&& name)
 
+template <bool b>
+struct StaticIf;
+
+template <>
+struct StaticIf<true> {
+    template <typename T>
+    auto then(T&& t) {
+        return t;
+    }
+};
+
+template <>
+struct StaticIf<false> {
+    template <typename T>
+    auto then(T&& t) {
+        return [](auto&& ...){
+            std::cout << "in a dumb place\n";
+        };
+    }
+};
+
+template <typename T>
+auto static_if(T&& t) {
+    return StaticIf<T::value>{};
+}
+
+
 template <typename T, T t>
 struct Field {
     constexpr T ptr() const { return t; }
@@ -144,16 +171,6 @@ void visit(T&& t, const char* name, Callback&& cb) {
     }, std::decay_t<T>::reflectionData().fields);
 }
 
-template <typename Lhs, typename Rhs, std::enable_if_t<std::is_convertible<Rhs, Lhs>::value, int> = 0>
-void bind(Lhs& lhs, Rhs&& rhs) {
-    lhs = std::forward<Rhs>(rhs);
-}
-
-template <typename Lhs, typename Rhs, std::enable_if_t<! std::is_convertible<Rhs, Lhs>::value, int> = 0>
-void bind(Lhs& lhs, Rhs&& rhs) {
-    throw "bad type";
-}
-
 template <typename T, std::enable_if_t<hasReflectionData_v<T>, int> = 0>
 struct Binder {
     T& t;
@@ -162,7 +179,9 @@ struct Binder {
     template <typename U>
     Binder& operator=(U&& u) {
         visit(t, name, [&](auto&& x){
-            bind(x, std::forward<U>(u));
+            static_if(std::is_convertible<U, std::decay_t<decltype(x)>>{}).then([&](auto&& y){
+                y = std::forward<U>(u);
+            })(std::forward<decltype(x)>(x));
         });
         return *this;
     }
@@ -205,7 +224,8 @@ int main() {
     std::cout << Foo{1,2,3} << "\n";
     std::cout << load(Foo{}, std::make_tuple(1,2,3, "fun")) << "\n";
 
-    Foo foo{1,2,3};
+    Foo foo{};
+    wrap(foo)["a"] = 9001;
     wrap(foo)["d"] = "hi";
     std::cout << foo << "\n";
 }
