@@ -130,6 +130,48 @@ auto load(T&& dst, Tup&& from) {
     return std::move(dst);
 }
 
+template <typename T, typename Callback>
+void visit(T&& t, const char* name, Callback&& cb) {
+    tupleForEach([&](size_t i, auto&& x) {
+        if (strcmp(x.name, name) == 0) {
+            cb(t.*(x.ptr()));
+
+            return Control::break_t;
+        }
+
+        return Control::continue_t;
+    }, std::decay_t<T>::reflectionData().fields);
+}
+
+template <typename T, std::enable_if_t<hasReflectionData_v<T>, int> = 0>
+struct Binder {
+    T& t;
+    const char* name;
+
+    template <typename U>
+    Binder& operator=(U&& u) {
+        visit(t, name, [&](auto&& x){
+            x = std::forward<U>(u);
+        });
+        return *this;
+    }
+};
+
+
+template <typename T>
+struct Wrap {
+    T& t;
+
+    auto operator[](const char* name) {
+        return Binder<T>{t, name};
+    }
+};
+
+template <typename T, std::enable_if_t<hasReflectionData_v<T>, int> = 0>
+Wrap<T> wrap(T& t) {
+    return Wrap<T>{t};
+}
+
 template <typename T, std::enable_if_t<hasReflectionData_v<T>, int> = 0>
 std::ostream& operator<<(std::ostream& os, const T& t) {
     auto reflectionData = T::reflectionData();
@@ -151,4 +193,8 @@ int main() {
     std::cout << (Foo{1,2,3} < Foo{2,3,4}) << "\n";
     std::cout << Foo{1,2,3} << "\n";
     std::cout << load(Foo{}, std::make_tuple(1,2,3)) << "\n";
+
+    Foo foo{1,2,3};
+    wrap(foo)["a"] = 4;
+    std::cout << foo << "\n";
 }
