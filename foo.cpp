@@ -26,22 +26,14 @@
     template <decltype(&type::name) ptr, typename T> \
     constexpr static bool validate(T&& name)
 
-template <bool b>
-struct StaticIf;
+enum class StaticIfState {
+    Resolved,
+    True,
+    False,
+};
 
 template <typename Parent, typename T, bool b>
 struct Else;
-
-template <typename Parent, typename T>
-struct Else<Parent, T, true> {
-    Else(Parent& p, T&& t) : t(std::move(t)) {}
-    T t;
-
-    template <typename ...Ts>
-    auto operator()(Ts&& ...ts) {
-        return t(std::forward<Ts>(ts)...);
-    }
-};
 
 template <typename Parent, typename T>
 struct Else<Parent, T, false> {
@@ -54,12 +46,65 @@ struct Else<Parent, T, false> {
     }
 };
 
+template <typename Parent, typename T>
+struct Else<Parent, T, true> {
+    Else(Parent& p, T&& t) : t(std::move(t)) {}
+    T t;
+
+    template <typename ...Ts>
+    auto operator()(Ts&& ...ts) {
+        return t(std::forward<Ts>(ts)...);
+    }
+};
+
+template <typename Parent, typename T, StaticIfState state>
+struct ElseIf {
+    ElseIf(Parent& p, T&& t) : p(p) {}
+    Parent& p;
+
+    template <typename ...Ts>
+    auto operator()(Ts&& ...ts) {
+        return p(std::forward<Ts>(ts)...);
+    }
+
+    template <typename U>
+    auto static_else(U&& u) {
+        return Else<ElseIf, U, state == StaticIfState::Resolved ? false : true>{*this, std::forward<U>(u)};
+    }
+
+    template <bool b, typename U>
+    auto static_else_if(U&& u) {
+        return ElseIf<ElseIf, U, state == StaticIfState::Resolved ? StaticIfState::Resolved : b ? StaticIfState::True : StaticIfState::False>{*this, std::forward<U>(u)};
+    }
+};
+
+template <typename Parent, typename T>
+struct ElseIf<Parent, T, StaticIfState::True> {
+    ElseIf(Parent& p, T&& t) : t(std::move(t)) {}
+    T t;
+
+    template <typename ...Ts>
+    auto operator()(Ts&& ...ts) {
+        return t(std::forward<Ts>(ts)...);
+    }
+
+    template <typename U>
+    auto static_else(U&& u) {
+        return Else<ElseIf, U, false>{*this, std::forward<U>(u)};
+    }
+
+    template <bool b, typename U>
+    auto static_else_if(U&& u) {
+        return ElseIf<ElseIf, U, StaticIfState::Resolved>{*this, std::forward<U>(u)};
+    }
+};
+
 template <typename T, bool b>
 struct Then;
 
 template <typename T>
 struct Then<T, true> {
-    Then(T&& t) : t(t) {}
+    Then(T&& t) : t(std::move(t)) {}
 
     template <typename ...Ts>
     auto operator()(Ts&& ...ts) {
@@ -69,6 +114,11 @@ struct Then<T, true> {
     template <typename U>
     auto static_else(U&& u) {
         return Else<Then, U, false>{*this, std::forward<U>(u)};
+    }
+
+    template <bool b, typename U>
+    auto static_else_if(U&& u) {
+        return ElseIf<Then, U, StaticIfState::Resolved>{*this, std::forward<U>(u)};
     }
 
     T t;
@@ -87,21 +137,16 @@ struct Then<T, false> {
         return Else<Then, U, true>{*this, std::forward<U>(u)};
     }
 
-};
-
-template <bool b>
-struct StaticIf {
-    template <typename T>
-    auto then(T&& t) {
-        return Then<T, b>{std::forward<T>(t)};
+    template <bool b, typename U>
+    auto static_else_if(U&& u) {
+        return ElseIf<Then, U, b ? StaticIfState::True : StaticIfState::False>{*this, std::forward<U>(u)};
     }
 };
 
-template <typename T>
-auto static_if(const T& t) {
-    return StaticIf<T::value>{};
+template <bool b, typename T>
+auto static_if(T&& t) {
+    return Then<T, b>{std::forward<T>(t)};
 }
-
 
 template <typename T, T t>
 struct Field {
@@ -230,7 +275,7 @@ struct Binder {
     template <typename U>
     Binder& operator=(U&& u) {
         visit(t, name, [&](auto&& x){
-            static_if(std::is_convertible<U, std::decay_t<decltype(x)>>{}).then([&](auto&& y){
+            static_if<std::is_convertible<U, std::decay_t<decltype(x)>>::value>([&](auto&& y){
                 y = std::forward<U>(u);
             }).static_else([&](auto&& y){
                 throw std::runtime_error("bad assignment type");
@@ -272,6 +317,22 @@ std::ostream& operator<<(std::ostream& os, const T& t) {
     return os;
 }
 
+template <typename T>
+void print(T&& t) {
+    static_if<std::is_same<std::decay_t<T>, std::string>::value>([](auto&& x){
+        static_assert(std::is_same<std::decay_t<decltype(x)>, std::string>::value, "");
+        std::cout << "string\n";
+    }).template static_else_if<std::is_same<std::decay_t<T>, int32_t>::value>([](auto&& x){
+        static_assert(std::is_same<std::decay_t<decltype(x)>, int32_t>::value, "");
+        std::cout << "int32_t\n";
+    }).template static_else_if<std::is_same<std::decay_t<T>, char>::value>([](auto&& x){
+        static_assert(std::is_same<std::decay_t<decltype(x)>, char>::value, "");
+        std::cout << "char\n";
+    }).static_else([](auto&& x){
+        std::cout << "magic: " << x << "\n";
+    })(std::forward<T>(t));
+}
+
 int main() {
     std::cout << (Foo{1,2,3} < Foo{2,3,4}) << "\n";
     std::cout << Foo{1,2,3} << "\n";
@@ -282,9 +343,16 @@ int main() {
     wrap(foo)["d"] = "hi";
     std::cout << foo << "\n";
 
+    std::cout << "trying to throw...\n";
     try {
         wrap(foo)["d"] = 50;
     } catch (std::exception& e) {
         std::cout << e.what() << "\n";
     }
+    std::cout << "\n";
+
+    print(std::string{"foo"});
+    print(int32_t{10});
+    print('a');
+    print(0.0);
 }
