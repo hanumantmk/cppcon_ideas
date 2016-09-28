@@ -97,14 +97,7 @@ struct MustConstruct {
 
     int x;
 
-    friend std::ostream& operator<<(std::ostream& os, const MustConstruct& x) {
-        os << x.x;
-        return os;
-    }
-
-    friend bool operator<(const MustConstruct& lhs, const MustConstruct& rhs) {
-        return lhs.x < rhs.x;
-    }
+    DECLARE(MustConstruct, x);
 };
 
 class Foo {
