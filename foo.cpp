@@ -92,36 +92,41 @@ void print(T&& t) {
         .static_else([](auto&& x) { std::cout << "magic: " << x << "\n"; })(std::forward<T>(t));
 }
 
+struct MustConstruct {
+    MustConstruct(int x) : x(x) {}
+
+    int x;
+
+    friend std::ostream& operator<<(std::ostream& os, const MustConstruct& x) {
+        os << x.x;
+        return os;
+    }
+
+    friend bool operator<(const MustConstruct& lhs, const MustConstruct& rhs) {
+        return lhs.x < rhs.x;
+    }
+};
+
 class Foo {
 public:
-    Foo() = default;
-
-    Foo(long a, short b, int c) : a(a), b(b), c(c) {}
-
-private:
     long a;
     short b;
-    int c;
+    MustConstruct c;
     std::string d;
 
-public:
     DECLARE(Foo, a, b, c, d)
 
     VALIDATE(a) {
         return a > 0 && a < 10;
     }
-
-    bool check() const {
-        return a && b && c;
-    }
 };
 
 int main() {
-    std::cout << (Foo{1, 2, 3} < Foo{2, 3, 4}) << "\n";
-    std::cout << Foo{1, 2, 3} << "\n";
-    std::cout << load(Foo{}, std::make_tuple(1, 2, 3, "fun")) << "\n";
+    std::cout << (Foo{1, 2, 3, "a"} < Foo{2, 3, 4, "b"}) << "\n";
+    std::cout << Foo{1, 2, 3, "a"} << "\n";
+    std::cout << load(Foo{0, 0, 0, ""}, std::make_tuple(1, 2, 3, "fun")) << "\n";
 
-    Foo foo{};
+    Foo foo{0, 0, 0, ""};
     wrap(foo)["a"] = 9001;
     wrap(foo)["d"] = "hi";
     std::cout << foo << "\n";
@@ -133,6 +138,14 @@ int main() {
         std::cout << e.what() << "\n";
     }
     std::cout << "\n";
+
+    auto n = Foo::reflectionData().getCtorArgsBinder();
+    n.set(LIFT_VALUE(&Foo::b){}, 2);
+    n.set(LIFT_VALUE(&Foo::a){}, 1);
+    n.set(LIFT_VALUE(&Foo::c){}, 3);
+    n.set(LIFT_VALUE(&Foo::d){}, "wow");
+
+    std::cout << n.make() << "\n";
 
     print(std::string{"foo"});
     print(int32_t{10});
