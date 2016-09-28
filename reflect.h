@@ -81,12 +81,17 @@ struct ReflectionData {
 
         const ReflectionData& reflectionData;
         std::bitset<sizeof...(Fields)> setArgs;
-        std::tuple<std::aligned_storage_t<sizeof(UnpackMemberPointer_t<typename Fields::MemberPointer::type>), alignof(UnpackMemberPointer_t<typename Fields::MemberPointer::type>)>...> args;
+        std::tuple<std::aligned_storage_t<
+            sizeof(UnpackMemberPointer_t<typename Fields::MemberPointer::type>),
+            alignof(UnpackMemberPointer_t<typename Fields::MemberPointer::type>)>...>
+            args;
 
-        template <size_t ...Idxs>
+        template <size_t... Idxs>
         T makeImpl(std::index_sequence<Idxs...>) {
-            return T{[&](auto idx, auto&& x){
-                using Field = UnpackMemberPointer_t<typename std::decay_t<decltype(std::get<std::decay_t<decltype(idx)>::value>(reflectionData.fields))>::MemberPointer::type>;
+            return T{[&](auto idx, auto&& x) {
+                using Field = UnpackMemberPointer_t<
+                    typename std::decay_t<decltype(std::get<std::decay_t<decltype(idx)>::value>(
+                        reflectionData.fields))>::MemberPointer::type>;
 
                 Field field{std::move(*reinterpret_cast<Field*>(&x))};
                 reinterpret_cast<Field*>(&x)->~Field();
@@ -100,17 +105,21 @@ struct ReflectionData {
 
         template <typename U, typename V>
         void set(U t, V&& v) {
-            tupleForEach([&](auto idx, auto&& x){
-                return static_if<std::is_same<typename std::decay_t<decltype(x)>::MemberPointer, U>::value>([&](auto&& y, auto&& z){
-                    setArgs[idx] = true;
-                    new (&std::get<std::decay_t<decltype(idx)>::value>(args))
-                        UnpackMemberPointer_t<typename std::decay_t<decltype(x)>::MemberPointer::type>(
-                            std::forward<decltype(z)>(z));
-                    return Control::break_t;
-                }).static_else([](auto ...){
-                    return Control::continue_t;
-                })(std::forward<decltype(x)>(x), std::forward<V>(v));
-            }, reflectionData.fields);
+            tupleForEach(
+                [&](auto idx, auto&& x) {
+                    return static_if<std::is_same<typename std::decay_t<decltype(x)>::MemberPointer,
+                                                  U>::value>([&](auto&& y, auto&& z) {
+                               setArgs[idx] = true;
+                               new (&std::get<std::decay_t<decltype(idx)>::value>(args))
+                                   UnpackMemberPointer_t<
+                                       typename std::decay_t<decltype(x)>::MemberPointer::type>(
+                                       std::forward<decltype(z)>(z));
+                               return Control::break_t;
+                           })
+                        .static_else([](auto...) { return Control::continue_t; })(
+                            std::forward<decltype(x)>(x), std::forward<V>(v));
+                },
+                reflectionData.fields);
         }
     };
 
