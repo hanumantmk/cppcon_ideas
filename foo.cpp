@@ -133,10 +133,10 @@ int main() {
     std::cout << "\n";
 
     auto n = Foo::reflectionData().getCtorArgsBinder();
-    n.set(LIFT_VALUE(&Foo::b){}, 2);
-    n.set(LIFT_VALUE(&Foo::a){}, 1);
-    n.set(LIFT_VALUE(&Foo::c){}, 3);
-    n.set(LIFT_VALUE(&Foo::d){}, "wow");
+    n.b = 2;
+    n.a = 1;
+    n.c = 3;
+    n.d = "wow";
 
     std::cout << n.make() << "\n";
 
