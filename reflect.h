@@ -17,24 +17,23 @@
 #define TYPE(r, data, i, elem) \
     BOOST_PP_COMMA_IF(i) makeField<decltype(&data::elem), &data::elem>(PASTE(elem))
 
-#define PATTERN_TYPE(r, data, i, elem) \
-    std::tuple_element_t<i, data> elem;
+#define PATTERN_TYPE(r, data, i, elem) std::tuple_element_t<i, data> elem;
 
 #define ARGS(classv, seq) BOOST_PP_SEQ_FOR_EACH_I(TYPE, classv, seq)
 
-#define DECLARE(classv, ...)                                                                    \
-    template <typename ...Fields> \
-    struct Pattern { \
-        using local_tuple = std::tuple<Fields...>; \
+#define DECLARE(classv, ...)                                                                      \
+    template <typename... Fields>                                                                 \
+    struct Pattern {                                                                              \
+        using local_tuple = std::tuple<Fields...>;                                                \
         BOOST_PP_SEQ_FOR_EACH_I(PATTERN_TYPE, local_tuple, BOOST_PP_VARIADIC_TO_SEQ(__VA_ARGS__)) \
-        static constexpr auto fields() { \
-            return std::make_tuple(ARGS(Pattern, BOOST_PP_VARIADIC_TO_SEQ(__VA_ARGS__))); \
-        } \
-    }; \
-    constexpr static auto reflectionData() {                                                    \
-        return makeReflectionData<classv>(#classv,                                              \
-                                          ARGS(classv, BOOST_PP_VARIADIC_TO_SEQ(__VA_ARGS__))); \
-    }                                                                                           \
+        static constexpr auto fields() {                                                          \
+            return std::make_tuple(ARGS(Pattern, BOOST_PP_VARIADIC_TO_SEQ(__VA_ARGS__)));         \
+        }                                                                                         \
+    };                                                                                            \
+    constexpr static auto reflectionData() {                                                      \
+        return makeReflectionData<classv>(#classv,                                                \
+                                          ARGS(classv, BOOST_PP_VARIADIC_TO_SEQ(__VA_ARGS__)));   \
+    }                                                                                             \
     using type = classv;
 
 #define VALIDATE(name)                               \
@@ -80,7 +79,7 @@ template <typename T, typename... Fields>
 struct ReflectionData {
     using type = T;
 
-    template <typename ...PFields>
+    template <typename... PFields>
     using pattern = typename T::template Pattern<PFields...>;
 
     constexpr ReflectionData(const char* name, Fields... fields) : name(name), fields(fields...) {}
@@ -97,17 +96,20 @@ struct ReflectionData {
 
         template <typename U>
         ProxyField& operator=(U&& u) {
-            parent->set(Key{}, std::forward<U>(u)); 
+            parent->set(Key{}, std::forward<U>(u));
             return *this;
         }
     };
 
-    struct CtorArgsBinder : public pattern<ProxyField<CtorArgsBinder, typename Fields::MemberPointer>...> {
+    struct CtorArgsBinder
+        : public pattern<ProxyField<CtorArgsBinder, typename Fields::MemberPointer>...> {
         CtorArgsBinder(const ReflectionData& reflectionData) : reflectionData(reflectionData) {
-            tupleForEach([&](auto idx, auto&& x){
-                ((*this).*(x.ptr())).parent = this;
-                return Control::continue_t;
-            }, pattern<ProxyField<CtorArgsBinder, typename Fields::MemberPointer>...>::fields());
+            tupleForEach(
+                [&](auto idx, auto&& x) {
+                    ((*this).*(x.ptr())).parent = this;
+                    return Control::continue_t;
+                },
+                pattern<ProxyField<CtorArgsBinder, typename Fields::MemberPointer>...>::fields());
         }
 
         const ReflectionData& reflectionData;
